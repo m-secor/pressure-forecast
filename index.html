@@ -452,7 +452,7 @@
     <div class="state-msg" id="loading-msg">Loading forecast&hellip;</div>
   </div>
 
-  <footer class="app-footer">
+  <footer class="app-footer" id="app-footer">
     Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
     (NOAA GFS/HRRR) &middot; mean sea-level pressure &middot; past ranges show model analysis
   </footer>
@@ -481,6 +481,8 @@
     times: [],
     values: [],
     utcOffsetSec: 0,
+    obsHours: {},   // time string -> true where a station observation replaced the model value
+    obsCount: 0,
     tableOpen: false
   };
 
@@ -543,8 +545,12 @@
         state.times = json.hourly.time;
         state.values = json.hourly.pressure_msl;
         state.utcOffsetSec = json.utc_offset_seconds || 0;
+        state.obsHours = {};
+        state.obsCount = 0;
         buildLayout();
         render();
+        renderFooter();
+        fetchObservations();
       })
       .catch(function (err) {
         appBody.innerHTML =
@@ -559,6 +565,124 @@
     var d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
+  }
+
+  // ---- Real station observations (NWS, US only) ----
+  // Open-Meteo past hours are model analysis; where an NWS station exists we
+  // overwrite them with actual measured sea-level pressure.
+  var obsSeq = 0;
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function resolveStation(loc) {
+    if (loc.stationId) return Promise.resolve(loc.stationId);
+    return fetch("https://api.weather.gov/points/" +
+                 loc.latitude.toFixed(4) + "," + loc.longitude.toFixed(4))
+      .then(function (r) { if (!r.ok) throw new Error("points"); return r.json(); })
+      .then(function (j) { return fetch(j.properties.observationStations); })
+      .then(function (r) { if (!r.ok) throw new Error("stations"); return r.json(); })
+      .then(function (j) {
+        var f = (j.features || [])[0];
+        return f ? f.properties.stationIdentifier : null;
+      })
+      .catch(function () { return null; });
+  }
+
+  // One request covers ~500 records; busy stations report every 5 minutes,
+  // so pull the 7-day history in parallel 36-hour chunks.
+  function fetchObsHistory(stationId) {
+    var now = Date.now();
+    var chunkMs = 36 * 3600 * 1000;
+    var reqs = [];
+    function isoZ(ms) { return new Date(ms).toISOString().replace(/\.\d+Z$/, "Z"); }
+    for (var t = now - 7 * 24 * 3600 * 1000; t < now; t += chunkMs) {
+      var url = "https://api.weather.gov/stations/" + stationId +
+        "/observations?start=" + isoZ(t) +
+        "&end=" + isoZ(Math.min(t + chunkMs, now)) + "&limit=500";
+      reqs.push(
+        fetch(url)
+          .then(function (r) { return r.ok ? r.json() : { features: [] }; })
+          .catch(function () { return { features: [] }; })
+      );
+    }
+    return Promise.all(reqs).then(function (pages) {
+      var all = [];
+      pages.forEach(function (p) { all = all.concat(p.features || []); });
+      return all;
+    });
+  }
+
+  function fetchObservations() {
+    var seq = ++obsSeq;
+    var loc = state.location;
+    resolveStation(loc)
+      .then(function (stationId) {
+        if (!stationId || seq !== obsSeq) return null;
+        loc.stationId = stationId;
+        persist();
+        return fetchObsHistory(stationId);
+      })
+      .then(function (features) {
+        if (!features || seq !== obsSeq || !state.times.length) return;
+        applyObservations(features);
+      })
+      .catch(function () { /* keep model data */ });
+  }
+
+  function applyObservations(features) {
+    var timeIndex = {};
+    for (var i = 0; i < state.times.length; i++) timeIndex[state.times[i]] = i;
+    var nowIdx = nowIndex();
+
+    // keep the observation closest to the top of each city-local hour
+    var best = {};
+    features.forEach(function (f) {
+      var p = f.properties || {};
+      var slp = p.seaLevelPressure && p.seaLevelPressure.value;
+      if (slp == null) return;
+      var ms = Date.parse(p.timestamp);
+      if (isNaN(ms)) return;
+      var cityMs = ms + state.utcOffsetSec * 1000;
+      var hourMs = Math.round(cityMs / 3600000) * 3600000;
+      var d = new Date(hourMs);
+      var key = d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" +
+                pad2(d.getUTCDate()) + "T" + pad2(d.getUTCHours()) + ":00";
+      var dist = Math.abs(cityMs - hourMs);
+      if (!(key in best) || dist < best[key].dist) {
+        best[key] = { dist: dist, hpa: slp / 100 };
+      }
+    });
+
+    var count = 0;
+    state.obsHours = {};
+    Object.keys(best).forEach(function (key) {
+      var idx = timeIndex[key];
+      if (idx !== undefined && idx <= nowIdx) {
+        state.values[idx] = Math.round(best[key].hpa * 10) / 10;
+        state.obsHours[key] = true;
+        count++;
+      }
+    });
+    state.obsCount = count;
+    if (count) {
+      render();
+      renderFooter();
+    }
+  }
+
+  function renderFooter() {
+    var el = document.getElementById("app-footer");
+    if (state.obsCount) {
+      el.innerHTML =
+        'Past: ' + escapeHtml(state.location.stationId) + ' station observations ' +
+        '(<a href="https://www.weather.gov/" target="_blank" rel="noopener">NWS</a>) &middot; ' +
+        'Forecast: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ' +
+        '(NOAA GFS/HRRR) &middot; mean sea-level pressure';
+    } else {
+      el.innerHTML =
+        'Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ' +
+        '(NOAA GFS/HRRR) &middot; mean sea-level pressure &middot; past ranges show model analysis';
+    }
   }
 
   // ---- City search ----
@@ -811,7 +935,9 @@
     if (!times.length) return;
     var first = parseISO(times[0]);
     var last = parseISO(times[times.length - 1]);
-    var kind = state.range < 0 ? "observed (model analysis)" : "past 6h + forecast";
+    var kind = state.range < 0
+      ? (state.obsCount ? "observed at " + state.location.stationId : "past (model analysis)")
+      : (state.obsCount ? "past 6h observed + forecast" : "past 6h + forecast");
     document.getElementById("chart-sub").textContent =
       fullLabel(first) + " – " + fullLabel(last) + " (local time, " + kind + ")";
   }
@@ -823,7 +949,7 @@
       var p = parseISO(times[i]);
       var tr = document.createElement("tr");
       var tdTime = document.createElement("td");
-      tdTime.textContent = fullLabel(p);
+      tdTime.textContent = fullLabel(p) + (state.obsHours[times[i]] ? " · observed" : "");
       var tdVal = document.createElement("td");
       tdVal.className = "num";
       tdVal.textContent = fmtValue(values[i]) + " " + unitLabel();
@@ -954,8 +1080,9 @@
       hoverDot.style.opacity = 1;
 
       var p = parseISO(times[i]);
+      var srcTag = state.obsHours[times[i]] ? " · observed" : "";
       tooltip.innerHTML =
-        '<div class="tt-time">' + fullLabel(p) + '</div>' +
+        '<div class="tt-time">' + fullLabel(p) + srcTag + '</div>' +
         '<div><span class="tt-key"></span><span class="tt-value">' + fmtValue(values[i]) + " " + unitLabel() + '</span></div>';
 
       var rect = svg.getBoundingClientRect();
