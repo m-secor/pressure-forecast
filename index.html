@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#2a78d6" />
+<title>Hourly Pressure</title>
+<style>
+  :root {
+    color-scheme: light dark;
+  }
+
+  .viz-root {
+    --page-plane:     #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-1-wash:  rgba(42,120,214,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    .viz-root {
+      --page-plane:     #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-1-wash:  rgba(57,135,229,0.14);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .viz-root {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 28px 20px 48px;
+  }
+
+  header.app-header {
+    margin-bottom: 14px;
+  }
+  header.app-header h1 {
+    font-size: 21px;
+    font-weight: 600;
+    margin: 0 0 2px;
+  }
+  header.app-header p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  .search-row {
+    position: relative;
+    margin-bottom: 14px;
+  }
+  .search-row input[type="search"] {
+    width: 100%;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    appearance: none;
+  }
+  .search-row input[type="search"]:focus {
+    outline: 2px solid var(--series-1);
+    outline-offset: -1px;
+  }
+  .search-results {
+    position: absolute;
+    left: 0; right: 0;
+    top: calc(100% + 4px);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    z-index: 20;
+    overflow: hidden;
+    display: none;
+  }
+  .search-results.visible { display: block; }
+  .search-results button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--gridline);
+  }
+  .search-results button:last-child { border-bottom: none; }
+  .search-results button:hover,
+  .search-results button:focus {
+    background: var(--series-1-wash);
+    outline: none;
+  }
+  .search-results .detail {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-left: 6px;
+  }
+  .search-results .empty {
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .segmented {
+    display: inline-flex;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .segmented button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: inherit;
+    padding: 6px 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .segmented button:hover {
+    background: rgba(137,135,129,0.14);
+  }
+  .segmented button[aria-pressed="true"] {
+    background: var(--series-1);
+    color: #ffffff;
+  }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .stat-tile {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .stat-tile .stat-main .label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .stat-tile .stat-main .value {
+    font-size: 48px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: proportional-nums;
+  }
+  .stat-tile .stat-main .value .unit {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-left: 6px;
+  }
+  .stat-tile .delta {
+    font-size: 14px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .stat-tile .delta .arrow {
+    font-size: 14px;
+  }
+  .stat-meta {
+    text-align: right;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .chart-card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 2px;
+  }
+  .chart-card .chart-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 14px;
+  }
+
+  .chart-wrap {
+    position: relative;
+  }
+  .chart-wrap svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .chart-wrap svg:focus {
+    outline: none;
+  }
+
+  .axis-label {
+    font-size: 11px;
+    fill: var(--text-muted);
+  }
+  .gridline {
+    stroke: var(--gridline);
+    stroke-width: 1;
+  }
+  .baseline {
+    stroke: var(--baseline);
+    stroke-width: 1;
+  }
+  .series-line {
+    fill: none;
+    stroke: var(--series-1);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .series-area {
+    fill: var(--series-1-wash);
+    stroke: none;
+  }
+  .now-line {
+    stroke: var(--text-muted);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .now-label {
+    font-size: 10px;
+    fill: var(--text-muted);
+  }
+  .crosshair {
+    stroke: var(--text-muted);
+    stroke-width: 1;
+    pointer-events: none;
+  }
+  .hover-dot {
+    fill: var(--series-1);
+    stroke: var(--surface-1);
+    stroke-width: 2;
+    pointer-events: none;
+  }
+  .end-dot {
+    fill: var(--series-1);
+    stroke: var(--surface-1);
+    stroke-width: 2;
+  }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.16);
+    opacity: 0;
+    transform: translate(-50%, -110%);
+    white-space: nowrap;
+    transition: opacity 0.08s ease;
+    z-index: 5;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip .tt-time {
+    color: var(--text-secondary);
+    margin-bottom: 3px;
+  }
+  .tooltip .tt-value {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .tooltip .tt-key {
+    display: inline-block;
+    width: 10px;
+    height: 2px;
+    background: var(--series-1);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  .table-toggle {
+    background: none;
+    border: none;
+    color: var(--series-1);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 14px;
+  }
+  .table-toggle:hover { text-decoration: underline; }
+
+  .data-table-wrap {
+    margin-top: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+    border-top: 1px solid var(--gridline);
+    display: none;
+  }
+  .data-table-wrap.visible { display: block; }
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.data-table th, table.data-table td {
+    text-align: left;
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--gridline);
+  }
+  table.data-table th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  table.data-table td.num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .state-msg {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+  .state-msg button {
+    margin-top: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  footer.app-footer {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  footer.app-footer a {
+    color: var(--text-muted);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 540px) {
+    .viz-root {
+      padding: 16px 12px 32px;
+    }
+    header.app-header h1 { font-size: 18px; }
+    .card { padding: 14px; }
+    .stat-tile .stat-main .value { font-size: 36px; }
+    .stat-tile .stat-main .value .unit { font-size: 16px; }
+    .stat-meta { text-align: left; }
+    .segmented button {
+      font-size: 12px;
+      padding: 6px 8px;
+    }
+    .controls-row {
+      justify-content: flex-start;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="app-header">
+    <h1>Hourly Pressure</h1>
+    <p id="loc-sub">Tallahassee, Florida</p>
+  </header>
+
+  <div class="search-row">
+    <input type="search" id="city-input" placeholder="Search for a city&hellip;"
+           autocomplete="off" aria-label="Search for a city" />
+    <div class="search-results" id="search-results" role="listbox"></div>
+  </div>
+
+  <div class="controls-row">
+    <div class="segmented" role="group" aria-label="Time range">
+      <button type="button" data-range="-168" aria-pressed="false">Past 7d</button>
+      <button type="button" data-range="-72" aria-pressed="false">Past 3d</button>
+      <button type="button" data-range="24" aria-pressed="true">24h</button>
+      <button type="button" data-range="72" aria-pressed="false">3d</button>
+      <button type="button" data-range="168" aria-pressed="false">7d</button>
+    </div>
+    <div class="segmented" role="group" aria-label="Pressure unit">
+      <button type="button" data-unit="hpa" aria-pressed="true">hPa</button>
+      <button type="button" data-unit="inhg" aria-pressed="false">inHg</button>
+    </div>
+  </div>
+
+  <div id="app-body">
+    <div class="state-msg" id="loading-msg">Loading forecast&hellip;</div>
+  </div>
+
+  <footer class="app-footer">
+    Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
+    (NOAA GFS/HRRR) &middot; mean sea-level pressure &middot; past ranges show model analysis
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var HPA_TO_INHG = 0.0295299830714;
+  var STORAGE_KEY = "pressure-app-v2";
+
+  var DEFAULT_LOCATION = {
+    name: "Tallahassee",
+    admin1: "Florida",
+    country: "United States",
+    latitude: 30.4383,
+    longitude: -84.2807
+  };
+
+  var state = {
+    location: DEFAULT_LOCATION,
+    range: 24,          // hours; negative = history window ending now
+    unit: "hpa",
+    times: [],
+    values: [],
+    utcOffsetSec: 0,
+    tableOpen: false
+  };
+
+  // restore saved city / unit / range
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    if (saved.location && typeof saved.location.latitude === "number") {
+      state.location = saved.location;
+    }
+    if (saved.unit === "hpa" || saved.unit === "inhg") state.unit = saved.unit;
+    if (typeof saved.range === "number") state.range = saved.range;
+  } catch (e) { /* ignore corrupt storage */ }
+
+  var appBody = document.getElementById("app-body");
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        location: state.location,
+        unit: state.unit,
+        range: state.range
+      }));
+    } catch (e) { /* storage unavailable (private mode) */ }
+  }
+
+  function locationLabel() {
+    var loc = state.location;
+    var parts = [loc.name];
+    if (loc.admin1) parts.push(loc.admin1);
+    if (loc.country && loc.country !== "United States") parts.push(loc.country);
+    return parts.join(", ");
+  }
+
+  function renderHeader() {
+    document.getElementById("loc-sub").textContent =
+      locationLabel() + " · " +
+      Math.abs(state.location.latitude).toFixed(2) + "° " + (state.location.latitude >= 0 ? "N" : "S") + ", " +
+      Math.abs(state.location.longitude).toFixed(2) + "° " + (state.location.longitude >= 0 ? "E" : "W");
+  }
+
+  function apiUrl() {
+    return "https://api.open-meteo.com/v1/forecast" +
+      "?latitude=" + state.location.latitude +
+      "&longitude=" + state.location.longitude +
+      "&hourly=pressure_msl&timezone=auto&forecast_days=8&past_days=7";
+  }
+
+  function fetchData() {
+    appBody.innerHTML = '<div class="state-msg" id="loading-msg">Loading forecast&hellip;</div>';
+    renderHeader();
+    fetch(apiUrl())
+      .then(function (res) {
+        if (!res.ok) throw new Error("Request failed (" + res.status + ")");
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json.hourly || !json.hourly.time || !json.hourly.pressure_msl) {
+          throw new Error("Unexpected response shape");
+        }
+        state.times = json.hourly.time;
+        state.values = json.hourly.pressure_msl;
+        state.utcOffsetSec = json.utc_offset_seconds || 0;
+        buildLayout();
+        render();
+      })
+      .catch(function (err) {
+        appBody.innerHTML =
+          '<div class="state-msg">Couldn\'t load the forecast (' +
+          escapeHtml(err.message) +
+          ').<br><button type="button" id="retry-btn">Retry</button></div>';
+        document.getElementById("retry-btn").addEventListener("click", fetchData);
+      });
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ---- City search ----
+  var cityInput = document.getElementById("city-input");
+  var resultsBox = document.getElementById("search-results");
+  var searchTimer = null;
+  var searchSeq = 0;
+
+  function hideResults() {
+    resultsBox.classList.remove("visible");
+    resultsBox.innerHTML = "";
+  }
+
+  function runSearch(query) {
+    var seq = ++searchSeq;
+    fetch("https://geocoding-api.open-meteo.com/v1/search?name=" +
+          encodeURIComponent(query) + "&count=6&language=en&format=json")
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (seq !== searchSeq) return; // stale response
+        var results = json.results || [];
+        resultsBox.innerHTML = "";
+        if (!results.length) {
+          resultsBox.innerHTML = '<div class="empty">No matches found.</div>';
+        } else {
+          results.forEach(function (r) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.setAttribute("role", "option");
+            var detail = [r.admin1, r.country].filter(Boolean).join(", ");
+            btn.textContent = r.name;
+            if (detail) {
+              var span = document.createElement("span");
+              span.className = "detail";
+              span.textContent = detail;
+              btn.appendChild(span);
+            }
+            btn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+            btn.addEventListener("click", function () {
+              state.location = {
+                name: r.name,
+                admin1: r.admin1 || "",
+                country: r.country || "",
+                latitude: r.latitude,
+                longitude: r.longitude
+              };
+              persist();
+              cityInput.value = "";
+              hideResults();
+              fetchData();
+            });
+            resultsBox.appendChild(btn);
+          });
+        }
+        resultsBox.classList.add("visible");
+      })
+      .catch(function () {
+        if (seq !== searchSeq) return;
+        resultsBox.innerHTML = '<div class="empty">Search failed &mdash; check your connection.</div>';
+        resultsBox.classList.add("visible");
+      });
+  }
+
+  cityInput.addEventListener("input", function () {
+    var q = cityInput.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 2) { hideResults(); return; }
+    searchTimer = setTimeout(function () { runSearch(q); }, 300);
+  });
+  cityInput.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { hideResults(); cityInput.blur(); }
+    if (e.key === "Enter") {
+      var first = resultsBox.querySelector("button");
+      if (first) first.click();
+    }
+    if (e.key === "ArrowDown") {
+      var firstBtn = resultsBox.querySelector("button");
+      if (firstBtn) { firstBtn.focus(); e.preventDefault(); }
+    }
+  });
+  cityInput.addEventListener("blur", function () {
+    setTimeout(function () {
+      if (!resultsBox.contains(document.activeElement)) hideResults();
+    }, 150);
+  });
+
+  // ---- Layout / controls ----
+  function buildLayout() {
+    appBody.innerHTML =
+      '<div class="card">' +
+        '<div class="stat-tile">' +
+          '<div class="stat-main">' +
+            '<div class="label">Current pressure</div>' +
+            '<div class="value" id="stat-value">&ndash;</div>' +
+            '<div class="delta" id="stat-delta"></div>' +
+          '</div>' +
+          '<div class="stat-meta" id="stat-meta"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card chart-card">' +
+        '<h2>Sea-level pressure</h2>' +
+        '<p class="chart-sub" id="chart-sub"></p>' +
+        '<div class="chart-wrap" id="chart-wrap"></div>' +
+        '<button type="button" class="table-toggle" id="table-toggle" aria-expanded="false">View as table</button>' +
+        '<div class="data-table-wrap" id="table-wrap">' +
+          '<table class="data-table">' +
+            '<thead><tr><th>Time</th><th>Pressure</th></tr></thead>' +
+            '<tbody id="table-body"></tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById("table-toggle").addEventListener("click", function () {
+      state.tableOpen = !state.tableOpen;
+      var wrap = document.getElementById("table-wrap");
+      wrap.classList.toggle("visible", state.tableOpen);
+      this.setAttribute("aria-expanded", String(state.tableOpen));
+      this.textContent = state.tableOpen ? "Hide table" : "View as table";
+    });
+  }
+
+  function syncSegmented(selector, attr, current) {
+    document.querySelectorAll(selector).forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute(attr) === String(current)));
+    });
+  }
+
+  document.querySelectorAll(".segmented button[data-range]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.range = Number(btn.getAttribute("data-range"));
+      syncSegmented(".segmented button[data-range]", "data-range", state.range);
+      persist();
+      if (state.times.length) render();
+    });
+  });
+
+  document.querySelectorAll(".segmented button[data-unit]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.unit = btn.getAttribute("data-unit");
+      syncSegmented(".segmented button[data-unit]", "data-unit", state.unit);
+      persist();
+      if (state.times.length) render();
+    });
+  });
+
+  // reflect restored state in the controls
+  syncSegmented(".segmented button[data-range]", "data-range", state.range);
+  syncSegmented(".segmented button[data-unit]", "data-unit", state.unit);
+
+  // ---- Units / time helpers ----
+  function toUnit(hpa) {
+    return state.unit === "inhg" ? hpa * HPA_TO_INHG : hpa;
+  }
+  function unitLabel() {
+    return state.unit === "inhg" ? "inHg" : "hPa";
+  }
+  function fmtValue(hpa) {
+    var v = toUnit(hpa);
+    return state.unit === "inhg" ? v.toFixed(2) : v.toFixed(1);
+  }
+
+  function parseISO(iso) {
+    var parts = iso.split("T");
+    var d = parts[0].split("-").map(Number);
+    var t = parts[1].split(":").map(Number);
+    var weekday = new Date(Date.UTC(d[0], d[1] - 1, d[2])).getUTCDay();
+    return { y: d[0], mo: d[1], d: d[2], h: t[0], mi: t[1], weekday: weekday };
+  }
+
+  var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function hourLabel(p) {
+    var h12 = p.h % 12 === 0 ? 12 : p.h % 12;
+    return h12 + (p.h < 12 ? "a" : "p");
+  }
+  function dayLabel(p) {
+    return WEEKDAYS[p.weekday];
+  }
+  function fullLabel(p) {
+    return WEEKDAYS[p.weekday] + " " + MONTHS[p.mo - 1] + " " + p.d + ", " + hourLabel(p);
+  }
+
+  // Times from the API are wall-clock in the city's timezone; compare them
+  // against "now" shifted into that timezone so search works across zones.
+  function nowIndex() {
+    var cityNowMs = Date.now() + state.utcOffsetSec * 1000;
+    var best = 0, bestDiff = Infinity;
+    for (var i = 0; i < state.times.length; i++) {
+      var p = parseISO(state.times[i]);
+      var candidateMs = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi);
+      var diff = Math.abs(candidateMs - cityNowMs);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    return best;
+  }
+
+  function getWindow() {
+    var nowIdx = nowIndex();
+    if (state.range < 0) {
+      var start = Math.max(0, nowIdx + state.range);
+      return { start: start, end: nowIdx + 1, nowIdx: nowIdx };
+    }
+    return { start: nowIdx, end: Math.min(state.times.length, nowIdx + state.range), nowIdx: nowIdx };
+  }
+
+  function render() {
+    var win = getWindow();
+    var times = state.times.slice(win.start, win.end);
+    var values = state.values.slice(win.start, win.end);
+
+    renderStat(win.nowIdx);
+    renderChartSub(times);
+    renderChart(times, values, win.nowIdx - win.start);
+    renderTable(times, values);
+  }
+
+  function renderStat(nowIdx) {
+    var current = state.values[nowIdx];
+    document.getElementById("stat-value").innerHTML =
+      fmtValue(current) + '<span class="unit">' + unitLabel() + "</span>";
+
+    var deltaEl = document.getElementById("stat-delta");
+    var refIdx = Math.max(0, nowIdx - 3);
+    if (refIdx !== nowIdx) {
+      var diff = current - state.values[refIdx];
+      var diffU = toUnit(diff);
+      var arrow = Math.abs(diffU) < (state.unit === "inhg" ? 0.005 : 0.15) ? "→" : (diff > 0 ? "↑" : "↓");
+      var word = arrow === "→" ? "steady" : (arrow === "↑" ? "rising" : "falling");
+      deltaEl.innerHTML =
+        '<span class="arrow">' + arrow + "</span> " +
+        Math.abs(diffU).toFixed(state.unit === "inhg" ? 2 : 1) + " " + unitLabel() +
+        " " + word + " (3h)";
+    } else {
+      deltaEl.textContent = "";
+    }
+
+    var p = parseISO(state.times[nowIdx]);
+    document.getElementById("stat-meta").textContent =
+      "As of " + fullLabel(p) + " local";
+  }
+
+  function renderChartSub(times) {
+    if (!times.length) return;
+    var first = parseISO(times[0]);
+    var last = parseISO(times[times.length - 1]);
+    var kind = state.range < 0 ? "observed (model analysis)" : "forecast";
+    document.getElementById("chart-sub").textContent =
+      fullLabel(first) + " – " + fullLabel(last) + " (local time, " + kind + ")";
+  }
+
+  function renderTable(times, values) {
+    var body = document.getElementById("table-body");
+    body.innerHTML = "";
+    for (var i = 0; i < times.length; i++) {
+      var p = parseISO(times[i]);
+      var tr = document.createElement("tr");
+      var tdTime = document.createElement("td");
+      tdTime.textContent = fullLabel(p);
+      var tdVal = document.createElement("td");
+      tdVal.className = "num";
+      tdVal.textContent = fmtValue(values[i]) + " " + unitLabel();
+      tr.appendChild(tdTime);
+      tr.appendChild(tdVal);
+      body.appendChild(tr);
+    }
+  }
+
+  // ---- Chart ----
+  var W = 800, H = 300;
+  var PAD = { top: 16, right: 16, bottom: 30, left: 46 };
+
+  function renderChart(times, values, nowOffset) {
+    var wrap = document.getElementById("chart-wrap");
+    if (!times.length) {
+      wrap.innerHTML = '<div class="state-msg">No data in this range.</div>';
+      return;
+    }
+
+    var unitVals = values.map(toUnit);
+    var minV = Math.min.apply(null, unitVals);
+    var maxV = Math.max.apply(null, unitVals);
+    var pad = (maxV - minV) * 0.15 || (state.unit === "inhg" ? 0.05 : 1.5);
+    minV -= pad; maxV += pad;
+
+    var plotW = W - PAD.left - PAD.right;
+    var plotH = H - PAD.top - PAD.bottom;
+    var n = unitVals.length;
+
+    function xAt(i) { return PAD.left + (n === 1 ? 0 : (i / (n - 1)) * plotW); }
+    function yAt(v) { return PAD.top + plotH - ((v - minV) / (maxV - minV)) * plotH; }
+
+    // y ticks
+    var tickCount = 4;
+    var yTicks = [];
+    for (var t = 0; t <= tickCount; t++) {
+      yTicks.push(minV + (t / tickCount) * (maxV - minV));
+    }
+
+    // x ticks: aim for ~6 labels
+    var xTickStep = Math.max(1, Math.round(n / 6));
+    var xTickIdx = [];
+    for (var i2 = 0; i2 < n; i2 += xTickStep) xTickIdx.push(i2);
+    if (xTickIdx[xTickIdx.length - 1] !== n - 1) xTickIdx.push(n - 1);
+
+    var multiDay = Math.abs(state.range) > 24;
+
+    var svgParts = [];
+    svgParts.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" tabindex="0" ' +
+      'aria-label="Line chart of sea-level pressure for ' + escapeHtml(locationLabel()) + ', ' + n + ' hourly points">');
+
+    // gridlines + y labels
+    yTicks.forEach(function (v) {
+      var y = yAt(v);
+      svgParts.push('<line class="gridline" x1="' + PAD.left + '" x2="' + (W - PAD.right) + '" y1="' + y + '" y2="' + y + '"></line>');
+      svgParts.push('<text class="axis-label" x="' + (PAD.left - 8) + '" y="' + (y + 4) + '" text-anchor="end">' +
+        v.toFixed(state.unit === "inhg" ? 2 : 0) + '</text>');
+    });
+
+    // baseline (bottom axis)
+    svgParts.push('<line class="baseline" x1="' + PAD.left + '" x2="' + (W - PAD.right) + '" y1="' + (H - PAD.bottom) + '" y2="' + (H - PAD.bottom) + '"></line>');
+
+    // x labels
+    xTickIdx.forEach(function (idx) {
+      var p = parseISO(times[idx]);
+      var label = multiDay ? dayLabel(p) + " " + hourLabel(p) : hourLabel(p);
+      svgParts.push('<text class="axis-label" x="' + xAt(idx) + '" y="' + (H - PAD.bottom + 18) + '" text-anchor="middle">' + label + '</text>');
+    });
+
+    // area path
+    var linePts = unitVals.map(function (v, i) { return xAt(i) + "," + yAt(v); });
+    var areaPath = "M" + xAt(0) + "," + (H - PAD.bottom) + " L" + linePts.join(" L") + " L" + xAt(n - 1) + "," + (H - PAD.bottom) + " Z";
+    svgParts.push('<path class="series-area" d="' + areaPath + '"></path>');
+
+    // line path
+    var linePath = "M" + linePts.join(" L");
+    svgParts.push('<path class="series-line" d="' + linePath + '"></path>');
+
+    // "now" marker when it falls inside the window
+    if (nowOffset >= 0 && nowOffset < n) {
+      var nowX = xAt(nowOffset);
+      svgParts.push('<line class="now-line" x1="' + nowX + '" x2="' + nowX + '" y1="' + PAD.top + '" y2="' + (H - PAD.bottom) + '"></line>');
+      var anchor = nowOffset > n / 2 ? "end" : "start";
+      var dx = nowOffset > n / 2 ? -4 : 4;
+      svgParts.push('<text class="now-label" x="' + (nowX + dx) + '" y="' + (PAD.top + 10) + '" text-anchor="' + anchor + '">now</text>');
+      svgParts.push('<circle class="end-dot" cx="' + nowX + '" cy="' + yAt(unitVals[nowOffset]) + '" r="4"></circle>');
+    } else {
+      var lastX = xAt(n - 1), lastY = yAt(unitVals[n - 1]);
+      svgParts.push('<circle class="end-dot" cx="' + lastX + '" cy="' + lastY + '" r="4"></circle>');
+    }
+
+    // crosshair (hidden by default)
+    svgParts.push('<line class="crosshair" id="crosshair-line" x1="0" x2="0" y1="' + PAD.top + '" y2="' + (H - PAD.bottom) + '" style="opacity:0"></line>');
+    svgParts.push('<circle class="hover-dot" id="hover-dot" cx="0" cy="0" r="4" style="opacity:0"></circle>');
+
+    // hit rect
+    svgParts.push('<rect id="hit-rect" x="' + PAD.left + '" y="' + PAD.top + '" width="' + plotW + '" height="' + plotH + '" fill="transparent"></rect>');
+
+    svgParts.push('</svg>');
+    svgParts.push('<div class="tooltip" id="tooltip"></div>');
+
+    wrap.innerHTML = svgParts.join("");
+
+    var svg = wrap.querySelector("svg");
+    var hitRect = document.getElementById("hit-rect");
+    var crosshairLine = document.getElementById("crosshair-line");
+    var hoverDot = document.getElementById("hover-dot");
+    var tooltip = document.getElementById("tooltip");
+
+    function showAt(i) {
+      i = Math.max(0, Math.min(n - 1, i));
+      var x = xAt(i), y = yAt(unitVals[i]);
+      crosshairLine.setAttribute("x1", x);
+      crosshairLine.setAttribute("x2", x);
+      crosshairLine.style.opacity = 1;
+      hoverDot.setAttribute("cx", x);
+      hoverDot.setAttribute("cy", y);
+      hoverDot.style.opacity = 1;
+
+      var p = parseISO(times[i]);
+      tooltip.innerHTML =
+        '<div class="tt-time">' + fullLabel(p) + '</div>' +
+        '<div><span class="tt-key"></span><span class="tt-value">' + fmtValue(values[i]) + " " + unitLabel() + '</span></div>';
+
+      var rect = svg.getBoundingClientRect();
+      var scale = rect.width / W;
+      tooltip.style.left = (x * scale) + "px";
+      tooltip.style.top = (y * scale) + "px";
+      tooltip.classList.add("visible");
+    }
+
+    function hide() {
+      crosshairLine.style.opacity = 0;
+      hoverDot.style.opacity = 0;
+      tooltip.classList.remove("visible");
+    }
+
+    function indexFromClientX(clientX) {
+      var rect = svg.getBoundingClientRect();
+      var scale = rect.width / W;
+      var localX = (clientX - rect.left) / scale;
+      var frac = (localX - PAD.left) / plotW;
+      return Math.round(frac * (n - 1));
+    }
+
+    hitRect.addEventListener("pointermove", function (e) {
+      showAt(indexFromClientX(e.clientX));
+    });
+    hitRect.addEventListener("pointerleave", hide);
+
+    var focusIdx = n - 1;
+    svg.addEventListener("focus", function () { showAt(focusIdx); });
+    svg.addEventListener("blur", hide);
+    svg.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowLeft") { focusIdx = Math.max(0, focusIdx - 1); showAt(focusIdx); e.preventDefault(); }
+      if (e.key === "ArrowRight") { focusIdx = Math.min(n - 1, focusIdx + 1); showAt(focusIdx); e.preventDefault(); }
+    });
+  }
+
+  fetchData();
+})();
+</script>
+</body>
+</html>
