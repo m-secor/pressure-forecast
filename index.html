@@ -239,7 +239,7 @@
   }
 
   .axis-label {
-    font-size: 11px;
+    font-size: 13px;
     fill: var(--text-muted);
   }
   .gridline {
@@ -270,7 +270,7 @@
     stroke-dasharray: 3 3;
   }
   .now-label {
-    font-size: 10px;
+    font-size: 12px;
     fill: var(--text-muted);
   }
   .crosshair {
@@ -960,15 +960,18 @@
   }
 
   // ---- Chart ----
-  var W = 800, H = 300;
-  var PAD = { top: 16, right: 16, bottom: 30, left: 46 };
-
   function renderChart(times, values, nowOffset) {
     var wrap = document.getElementById("chart-wrap");
     if (!times.length) {
       wrap.innerHTML = '<div class="state-msg">No data in this range.</div>';
       return;
     }
+
+    // Draw at the container's real width so label fonts render at full size
+    // instead of being scaled down with a fixed 800px viewBox.
+    var W = Math.max(300, Math.min(800, wrap.clientWidth || 800));
+    var H = W < 540 ? 270 : 300;
+    var PAD = { top: 16, right: 14, bottom: 34, left: 56 };
 
     var unitVals = values.map(toUnit);
     var minV = Math.min.apply(null, unitVals);
@@ -990,8 +993,8 @@
       yTicks.push(minV + (t / tickCount) * (maxV - minV));
     }
 
-    // x ticks: aim for ~6 labels
-    var xTickStep = Math.max(1, Math.round(n / 6));
+    // x ticks: aim for ~6 labels on wide charts, ~4 on narrow ones
+    var xTickStep = Math.max(1, Math.round(n / (W < 500 ? 4 : 6)));
     var xTickIdx = [];
     for (var i2 = 0; i2 < n; i2 += xTickStep) xTickIdx.push(i2);
     if (xTickIdx[xTickIdx.length - 1] !== n - 1) xTickIdx.push(n - 1);
@@ -1119,6 +1122,14 @@
       if (e.key === "ArrowRight") { focusIdx = Math.min(n - 1, focusIdx + 1); showAt(focusIdx); e.preventDefault(); }
     });
   }
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      if (state.times.length) render();
+    }, 150);
+  });
 
   fetchData();
 })();
