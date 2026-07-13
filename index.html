@@ -257,6 +257,9 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  .series-line.past {
+    opacity: 0.5;
+  }
   .series-area {
     fill: var(--series-1-wash);
     stroke: none;
@@ -753,13 +756,19 @@
     return best;
   }
 
+  var FORECAST_LOOKBACK = 6; // hours of recent observations shown before "now"
+
   function getWindow() {
     var nowIdx = nowIndex();
     if (state.range < 0) {
       var start = Math.max(0, nowIdx + state.range);
       return { start: start, end: nowIdx + 1, nowIdx: nowIdx };
     }
-    return { start: nowIdx, end: Math.min(state.times.length, nowIdx + state.range), nowIdx: nowIdx };
+    return {
+      start: Math.max(0, nowIdx - FORECAST_LOOKBACK),
+      end: Math.min(state.times.length, nowIdx + state.range),
+      nowIdx: nowIdx
+    };
   }
 
   function render() {
@@ -802,7 +811,7 @@
     if (!times.length) return;
     var first = parseISO(times[0]);
     var last = parseISO(times[times.length - 1]);
-    var kind = state.range < 0 ? "observed (model analysis)" : "forecast";
+    var kind = state.range < 0 ? "observed (model analysis)" : "past 6h + forecast";
     document.getElementById("chart-sub").textContent =
       fullLabel(first) + " – " + fullLabel(last) + " (local time, " + kind + ")";
   }
@@ -867,12 +876,15 @@
     svgParts.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" tabindex="0" ' +
       'aria-label="Line chart of sea-level pressure for ' + escapeHtml(locationLabel()) + ', ' + n + ' hourly points">');
 
-    // gridlines + y labels
+    // gridlines + y labels (extra decimal when the span is too narrow for whole-number ticks)
+    var yDecimals = state.unit === "inhg"
+      ? ((maxV - minV) < 0.2 ? 3 : 2)
+      : ((maxV - minV) < tickCount ? 1 : 0);
     yTicks.forEach(function (v) {
       var y = yAt(v);
       svgParts.push('<line class="gridline" x1="' + PAD.left + '" x2="' + (W - PAD.right) + '" y1="' + y + '" y2="' + y + '"></line>');
       svgParts.push('<text class="axis-label" x="' + (PAD.left - 8) + '" y="' + (y + 4) + '" text-anchor="end">' +
-        v.toFixed(state.unit === "inhg" ? 2 : 0) + '</text>');
+        v.toFixed(yDecimals) + '</text>');
     });
 
     // baseline (bottom axis)
@@ -890,9 +902,15 @@
     var areaPath = "M" + xAt(0) + "," + (H - PAD.bottom) + " L" + linePts.join(" L") + " L" + xAt(n - 1) + "," + (H - PAD.bottom) + " Z";
     svgParts.push('<path class="series-area" d="' + areaPath + '"></path>');
 
-    // line path
-    var linePath = "M" + linePts.join(" L");
-    svgParts.push('<path class="series-line" d="' + linePath + '"></path>');
+    // line path, split at "now" so the observed lead-in reads as distinct
+    if (nowOffset > 0 && nowOffset < n) {
+      var pastPath = "M" + linePts.slice(0, nowOffset + 1).join(" L");
+      var futurePath = "M" + linePts.slice(nowOffset).join(" L");
+      svgParts.push('<path class="series-line past" d="' + pastPath + '"></path>');
+      svgParts.push('<path class="series-line" d="' + futurePath + '"></path>');
+    } else {
+      svgParts.push('<path class="series-line" d="M' + linePts.join(" L") + '"></path>');
+    }
 
     // "now" marker when it falls inside the window
     if (nowOffset >= 0 && nowOffset < n) {
